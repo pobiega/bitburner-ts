@@ -2,14 +2,18 @@ import { NS } from "../types/index.js";
 import { ActionTimes, CycleCount, Server } from 'types';
 
 const DEBUG = {
+    targetFinder: false,
     attackActions: false,
     expFarm: false,
     dryrun: false,
 }
 
 const settings = {
-    sleepInterval: 10 * 1000,
-    targetServerCount: 5,
+    earlyGame: {
+        threshhold: 5000,
+        timeCap: 5 * 60 * 1000,
+    },
+    targetServerCount: 2,
     harvestPercent: 0.5,
     homeRamReserved: 64,
     changes: {
@@ -41,6 +45,9 @@ const weakenCyclesForHack = (hackCycles: number) => {
 };
 
 export async function main(ns: NS) {
+
+    const expOnly = ns.args[0] === 'exp';
+
     const servers = {} as Record<string, Server>;
 
     const explore = async () => {
@@ -110,13 +117,34 @@ export async function main(ns: NS) {
         ns.tprint(`Found ${Object.keys(servers).length} servers, ${Object.values(servers).filter(s => s.hasRootAccess).length} with root access`);
     };
 
-    const locateTargets = () => {
+    const calculateAvailableCycles = () => {
+        let total = 0;
+        for (const [hostname, node] of Object.entries(servers)) {
+            if (node.hasRootAccess) {
+
+                const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
+                node.availableCycles = Math.floor(availableRam / 1.75)
+                total += node.availableCycles;
+            }
+        }
+
+        return total;
+    };
+
+
+    const locateTargets = (capacity: number) => {
+        const isEarlyGame = capacity < settings.earlyGame.threshhold;
+
+        if (isEarlyGame) {
+            ns.tprint(`Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)}.`);
+        }
+
         const hackingLevel = ns.getHackingLevel();
 
         const potentialTargets = [];
 
         for (const [hostname, server] of Object.entries(servers)) {
-            if (server.hackingLevel > hackingLevel) {
+            if (server.hackingLevel > hackingLevel || !server.hasRootAccess) {
                 continue;
             }
 
@@ -130,23 +158,44 @@ export async function main(ns: NS) {
                 continue;
             }
 
-            const estimatedWorth = server.maxMoney / (200 + (server.minSecurityLevel * server.hackingLevel));
+            const weakenTime = ns.getWeakenTime(server.host);
+
+            if (isEarlyGame && weakenTime > settings.earlyGame.timeCap) {
+                continue;
+            }
+
+            const estimatedWorth = server.maxMoney / weakenTime;
             potentialTargets.push({ estimatedWorth, hostname });
         }
 
         potentialTargets.sort((a, b) => b.estimatedWorth - a.estimatedWorth);
 
-        const topServers = potentialTargets.slice(0, settings.targetServerCount);
+        const topServers = potentialTargets.slice(0, Math.min(settings.targetServerCount, potentialTargets.length));
+
+        if (DEBUG.targetFinder) {
+            ns.tprint(`Top ${topServers.length} targets:`);
+            for (const target of topServers) {
+                ns.tprint(`${target.hostname} - (${target.estimatedWorth})`);
+            }
+
+            ns.exit();
+        }
 
         return topServers;
     };
 
-    const expFarm = async (stopTime: number) => {
+    const expFarm = async (stopTime?: number) => {
         const expFarmTime = ns.getHackTime(settings.expFarmTarget);
 
         const sleepInterval = expFarmTime + 100;
 
-        while (new Date().getTime() < stopTime) {
+        let stopCondition = () => true;
+
+        if (stopTime) {
+            stopCondition = () => new Date().getTime() < stopTime;
+        }
+
+        while (stopCondition()) {
 
             let hackingNodes = Object.values(servers).filter(s => s.hasRootAccess);
 
@@ -166,11 +215,11 @@ export async function main(ns: NS) {
                 }
             }
 
-            if (DEBUG.expFarm) {
+            if (DEBUG.expFarm || expOnly) {
                 ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
             }
 
-            await ns.sleep(sleepInterval);
+            await ns.asleep(sleepInterval);
         }
     };
 
@@ -185,7 +234,6 @@ export async function main(ns: NS) {
     };
 
     const attack = (targets: Server[]) => {
-
 
         const getActionTimes = (host: string): ActionTimes => {
             const hackTime = ns.getHackTime(host);
@@ -340,24 +388,30 @@ export async function main(ns: NS) {
             ns.tprint(`${cycles} remaining cycles after using ${cyclesNeeded.total} cycles for ${target.host}.`);
         }
 
-        ns.tprint(`Longest wait: ${ns.tFormat(longestWait)}.`);
+        ns.tprint(`Longest wait: ${ns.tFormat(longestWait)}. Remaining cycles: ${cycles}.`);
         return { longestWait, remainingCycles: cycles };
     };
 
+    if (expOnly) {
+        ns.tprint("Exp only mode.");
+        await expFarm();
+    }
+    else {
+        while (true) {
+            await explore();
+            const capacity = calculateAvailableCycles();
+            const targets = locateTargets(capacity).map(({ hostname }) => servers[hostname]);
+            const attackResults = attack(targets);
 
-    while (true) {
-        await explore();
-        const targets = locateTargets().map(({ hostname }) => servers[hostname]);
-        const attackResults = attack(targets);
+            const attackResetAt = new Date().getTime() + attackResults.longestWait;
+            ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
 
-        const attackResetAt = new Date().getTime() + attackResults.longestWait;
-        ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
+            if (DEBUG.dryrun) {
+                ns.tprint("Dryrun mode enabled, exiting.");
+                return;
+            }
 
-        if (DEBUG.dryrun) {
-            ns.tprint("Dryrun mode enabled, exiting.");
-            return;
+            await expFarm(attackResetAt);
         }
-
-        await expFarm(attackResetAt);
     }
 }

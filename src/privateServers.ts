@@ -42,6 +42,16 @@ export async function main(ns: NS) {
         return;
     }
 
+    const getAvailableHostname = (): string => {
+        for (let i = 0; i < limit; i++) {
+            const hostname = settings.privateServerPrefix + i;
+            if (!hostnames.includes(hostname)) {
+                return hostname;
+            }
+        }
+        throw new Error("No available hostname");
+    };
+
     const plan = () => {
         let money = ns.getServerMoneyAvailable("home");
         let numberOfServersToBuy = limit - servers.length;
@@ -78,13 +88,38 @@ export async function main(ns: NS) {
 
         serversToBuy = Math.min(serversToBuy, limit - servers.length);
 
+        const newHostnames = [] as string[];
+
         for (let i = 0; i < serversToBuy; i++) {
-            ns.purchaseServer(`${settings.privateServerPrefix}${i+servers.length}`, step.ram);
+            newHostnames.push(ns.purchaseServer(getAvailableHostname(), step.ram));
         }
 
         return {
             count: serversToBuy,
             total: step.cost * serversToBuy,
+        };
+    };
+
+    const deleteServers = (ram: string | number) => {
+        if (typeof ram === 'string') {
+            ram = parseInt(ram);
+        }
+
+        const step = steps.find(step => step.ram === ram);
+
+        if (!step) {
+            ns.tprint(`Unknown RAM: ${ram}`);
+            return;
+        }
+
+        let serversToDelete = servers.filter(server => server.ram === step.ram);
+
+        serversToDelete.forEach(server => {
+            ns.deleteServer(server.hostname);
+        });
+
+        return {
+            count: serversToDelete.length,
         };
     };
 
@@ -123,6 +158,22 @@ export async function main(ns: NS) {
             }
             ns.tprint(`Bought ${result?.count} server${result.count > 1 ? "s" : ""} for ${ns.nFormat(result.total, "$0.000a")}`);
             break;
+        }
+        case "delete": {
+            const ram = ns.args[1];
+
+            if (typeof (ram) === 'boolean') {
+                return;
+            }
+
+            const result = deleteServers(ram);
+
+            if (!result) {
+                ns.tprint(`Couldn't delete servers.`);
+                return;
+            }
+
+            ns.tprint(`Deleted ${result.count} server${result.count > 1 ? "s" : ""}`);
         }
     }
 };
