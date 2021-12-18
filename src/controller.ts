@@ -3,10 +3,12 @@ import { ActionTimes, CycleCount, Server } from 'types';
 
 const DEBUG = {
     attackActions: false,
+    expFarm: false,
     dryrun: false,
 }
 
 const settings = {
+    sleepInterval: 10 * 1000,
     targetServerCount: 5,
     harvestPercent: 0.5,
     homeRamReserved: 64,
@@ -139,17 +141,51 @@ export async function main(ns: NS) {
         return topServers;
     };
 
-    const attack = (targets: Server[]) => {
+    const expFarm = async (stopTime: number) => {
+        const expFarmTime = ns.getHackTime(settings.expFarmTarget);
 
-        const executeAttackAction = (action: string, attacker: string, target: string, threads: number, delay: number) => {
+        const sleepInterval = expFarmTime + 100;
 
-            if (!DEBUG.dryrun) {
-                const retval = ns.exec(action, attacker, threads, target, threads.toString(), delay.toString());
-                if (retval === 0) {
-                    throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads!`);
+        while (new Date().getTime() < stopTime) {
+
+            let hackingNodes = Object.values(servers).filter(s => s.hasRootAccess);
+
+            let totalCycles = 0;
+
+            hackingNodes.forEach(node => {
+                const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
+                node.availableCycles = Math.floor(availableRam / 1.75);
+                totalCycles += node.availableCycles;
+            });
+
+            hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
+
+            for (const node of hackingNodes) {
+                if (!DEBUG.dryrun) {
+                    executeAttackAction("weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
                 }
             }
-        };
+
+            if (DEBUG.expFarm) {
+                ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
+            }
+
+            await ns.sleep(sleepInterval);
+        }
+    };
+
+    const executeAttackAction = (action: string, attacker: string, target: string, threads: number, delay: number, debug: boolean = false) => {
+
+        if (!DEBUG.dryrun) {
+            const retval = ns.exec(action, attacker, threads, target, threads, delay, debug);
+            if (retval === 0) {
+                throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads!`);
+            }
+        }
+    };
+
+    const attack = (targets: Server[]) => {
+
 
         const getActionTimes = (host: string): ActionTimes => {
             const hackTime = ns.getHackTime(host);
@@ -304,37 +340,24 @@ export async function main(ns: NS) {
             ns.tprint(`${cycles} remaining cycles after using ${cyclesNeeded.total} cycles for ${target.host}.`);
         }
 
-        debugger;
-
-        if (cycles > 0) {
-            // EXP farming
-            hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
-            const expThreads = hackingNodes.reduce((total, node) => total + node.availableCycles, 0);
-
-            ns.tprint(`${expThreads} spare threads being used for EXP farming.`);
-
-            for (const node of hackingNodes) {
-                if (!DEBUG.dryrun) {
-                    executeAttackAction("weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
-                }
-            }
-        }
-
         ns.tprint(`Longest wait: ${ns.tFormat(longestWait)}.`);
-        return { longestWait };
+        return { longestWait, remainingCycles: cycles };
     };
+
 
     while (true) {
         await explore();
         const targets = locateTargets().map(({ hostname }) => servers[hostname]);
-        const waits = attack(targets);
+        const attackResults = attack(targets);
 
-        ns.tprint(`Sleeping; Waking up at ${msToString(new Date().getTime() + waits.longestWait)}.`);
+        const attackResetAt = new Date().getTime() + attackResults.longestWait;
+        ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
 
         if (DEBUG.dryrun) {
             ns.tprint("Dryrun mode enabled, exiting.");
             return;
         }
-        await ns.asleep(waits.longestWait);
+
+        await expFarm(attackResetAt);
     }
 }

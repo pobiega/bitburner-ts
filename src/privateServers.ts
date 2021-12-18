@@ -2,7 +2,7 @@ import { NS } from "../types/index.js";
 // import settings from 'settings';
 
 const settings = {
-    privateServerPrefix: 'pserv',
+    privateServerPrefix: 'pserv-',
 };
 
 export interface PrivateServer {
@@ -76,8 +76,10 @@ export async function main(ns: NS) {
         let money = ns.getServerMoneyAvailable("home");
         let serversToBuy = Math.min(limit, Math.floor(money / step.cost));
 
+        serversToBuy = Math.min(serversToBuy, limit - servers.length);
+
         for (let i = 0; i < serversToBuy; i++) {
-            ns.purchaseServer(settings.privateServerPrefix, step.ram);
+            ns.purchaseServer(`${settings.privateServerPrefix}${i+servers.length}`, step.ram);
         }
 
         return {
@@ -97,6 +99,7 @@ export async function main(ns: NS) {
             steps.forEach(step => {
                 ns.tprint(`${step.ram.toString().padStart(4)} GB\t - ${ns.nFormat(step.cost, "$0.000a").padStart(4)}`);
             });
+            break;
         case "plan": {
             const result = plan();
 
