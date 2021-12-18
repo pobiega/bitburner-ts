@@ -47,6 +47,7 @@ export async function main(ns: NS) {
                 "FTPCrack.exe": ns.ftpcrack,
                 "RelaySMTP.exe": ns.relaysmtp,
                 "HTTPWorm.exe": ns.httpworm,
+                "SQLInject.exe": ns.sqlinject,
             };
 
             let openPorts = 0;
