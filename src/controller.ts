@@ -7,6 +7,7 @@ const DEBUG = {
 }
 
 const settings = {
+    targetServerCount: 5,
     harvestPercent: 0.5,
     homeRamReserved: 64,
     changes: {
@@ -15,6 +16,7 @@ const settings = {
         weaken: 0.05,
     },
     attackScripts: ["hack.js", "grow.js", "weaken.js"],
+    expFarmTarget: "joesguns"
 };
 
 const msToString = (ms = 0) => {
@@ -132,7 +134,9 @@ export async function main(ns: NS) {
 
         potentialTargets.sort((a, b) => b.estimatedWorth - a.estimatedWorth);
 
-        return potentialTargets;
+        const topServers = potentialTargets.slice(0, settings.targetServerCount);
+
+        return topServers;
     };
 
     const attack = (targets: Server[]) => {
@@ -298,6 +302,22 @@ export async function main(ns: NS) {
             }
 
             ns.tprint(`${cycles} remaining cycles after using ${cyclesNeeded.total} cycles for ${target.host}.`);
+        }
+
+        debugger;
+
+        if (cycles > 0) {
+            // EXP farming
+            hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
+            const expThreads = hackingNodes.reduce((total, node) => total + node.availableCycles, 0);
+
+            ns.tprint(`${expThreads} spare threads being used for EXP farming.`);
+
+            for (const node of hackingNodes) {
+                if (!DEBUG.dryrun) {
+                    executeAttackAction("weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
+                }
+            }
         }
 
         ns.tprint(`Longest wait: ${ns.tFormat(longestWait)}.`);
