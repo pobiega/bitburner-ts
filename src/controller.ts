@@ -151,12 +151,14 @@ export async function main(ns: NS) {
             const weakenTime = ns.getWeakenTime(host);
             const growTime = ns.getGrowTime(host);
 
+            const growDelay = Math.max(0, weakenTime - growTime) + 30;
+
             return {
                 hack: hackTime,
                 weaken: weakenTime,
                 grow: growTime,
-                growDelay: Math.max(0, weakenTime - growTime) + 30,
-                additionalWeakenDelay: Math.max(0, weakenTime) + 60,
+                growDelay: growDelay,
+                additionalWeakenDelay: 1000,
             }
         };
 
