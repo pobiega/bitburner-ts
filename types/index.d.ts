@@ -5201,7 +5201,7 @@
      * @param format - Formatter.
      * @returns Formated number.
      */
-    nFormat(n: number, format: string): number;
+    nFormat(n: number, format: string): string;
   
     /**
      * Format time to readable string
