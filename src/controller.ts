@@ -45,9 +45,6 @@ const weakenCyclesForHack = (hackCycles: number) => {
 };
 
 export async function main(ns: NS) {
-
-    const expOnly = ns.args[0] === 'exp';
-
     const servers = {} as Record<string, Server>;
 
     const explore = async () => {
@@ -184,18 +181,11 @@ export async function main(ns: NS) {
         return topServers;
     };
 
-    const expFarm = async (stopTime?: number) => {
+    const expFarm = async (stopTime: number) => {
         const expFarmTime = ns.getHackTime(settings.expFarmTarget);
-
         const sleepInterval = expFarmTime + 100;
 
-        let stopCondition = () => true;
-
-        if (stopTime) {
-            stopCondition = () => new Date().getTime() < stopTime;
-        }
-
-        while (stopCondition()) {
+        while (new Date().getTime() < stopTime) {
 
             let hackingNodes = Object.values(servers).filter(s => s.hasRootAccess);
 
@@ -215,7 +205,7 @@ export async function main(ns: NS) {
                 }
             }
 
-            if (DEBUG.expFarm || expOnly) {
+            if (DEBUG.expFarm) {
                 ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
             }
 
@@ -392,26 +382,20 @@ export async function main(ns: NS) {
         return { longestWait, remainingCycles: cycles };
     };
 
-    if (expOnly) {
-        ns.tprint("Exp only mode.");
-        await expFarm();
-    }
-    else {
-        while (true) {
-            await explore();
-            const capacity = calculateAvailableCycles();
-            const targets = locateTargets(capacity).map(({ hostname }) => servers[hostname]);
-            const attackResults = attack(targets);
+    while (true) {
+        await explore();
+        const capacity = calculateAvailableCycles();
+        const targets = locateTargets(capacity).map(({ hostname }) => servers[hostname]);
+        const attackResults = attack(targets);
 
-            const attackResetAt = new Date().getTime() + attackResults.longestWait;
-            ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
+        const attackResetAt = new Date().getTime() + attackResults.longestWait;
+        ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
 
-            if (DEBUG.dryrun) {
-                ns.tprint("Dryrun mode enabled, exiting.");
-                return;
-            }
-
-            await expFarm(attackResetAt);
+        if (DEBUG.dryrun) {
+            ns.tprint("Dryrun mode enabled, exiting.");
+            return;
         }
+
+        await expFarm(attackResetAt);
     }
 }
