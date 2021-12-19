@@ -88,10 +88,8 @@ export async function main(ns: NS) {
 
         serversToBuy = Math.min(serversToBuy, limit - servers.length);
 
-        const newHostnames = [] as string[];
-
         for (let i = 0; i < serversToBuy; i++) {
-            newHostnames.push(ns.purchaseServer(getAvailableHostname(), step.ram));
+            hostnames.push(ns.purchaseServer(getAvailableHostname(), step.ram));
         }
 
         return {
