@@ -22,7 +22,7 @@ function getAllHostnames(ns: NS) {
         const neighbors = ns.scan(host);
 
         for (const hostname of neighbors) {
-            if (!results[hostname]) {
+            if (!results.hasOwnProperty(hostname)) {
                 queue.push(hostname);
             }
         }
