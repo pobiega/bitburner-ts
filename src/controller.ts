@@ -10,7 +10,7 @@ const DEBUG = {
 }
 
 const settings = {
-    hwgwSafetyFactor: 1.03,
+    hwgwSafetyFactor: 1.1,
     earlyGame: {
         threshhold: 10000,
         timeCap: 2 * 60 * 1000,
@@ -18,7 +18,7 @@ const settings = {
     timeCap: 10 * 60 * 1000,
     batchDelay: 175,
     targetServerCount: 10,
-    harvestPercent: 0.5,
+    harvestPercent: 0.25,
     homeRamReserved: 64,
     changes: {
         hack: 0.002,
@@ -190,7 +190,7 @@ const locateTargets = (ns: NS, servers: Record<string, ServerNode>, capacity: nu
 
         const money = ns.getServerMoneyAvailable(server.host);
 
-        if (server.maxMoney < 1000000 || money < 1000) {
+        if (server.maxMoney < 1000000) {
             continue;
         }
 
