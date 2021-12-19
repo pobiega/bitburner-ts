@@ -133,28 +133,27 @@ export const calculateAvailableCycles = (ns: NS, nodes: ServerNode[]) => {
     return total;
 };
 
-const expFarm = async (ns: NS, hackingNodes: ServerNode[], stopTime: number) => {
-    const expFarmTime = ns.getHackTime(settings.expFarmTarget);
-    const sleepInterval = expFarmTime + 100;
-
+async function expFarm(ns: NS, hackingNodes: ServerNode[], stopTime: number) {
     while (new Date().getTime() < stopTime) {
+        const expFarmTime = ns.getWeakenTime(settings.expFarmTarget);
+        const sleepInterval = expFarmTime + 100;
         const totalCycles = calculateAvailableCycles(ns, hackingNodes);
 
-        hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
+        const activeNodes = hackingNodes.filter(node => node.availableCycles > 0);
 
-        for (const node of hackingNodes) {
-            if (!DEBUG.dryrun) {
+        if (!DEBUG.dryrun) {
+            for (const node of activeNodes) {
                 executeAttackAction(ns, "weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
             }
         }
 
         if (DEBUG.expFarm) {
-            ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
+            ns.tprint(`Exp farming with ${totalCycles} cycles on ${activeNodes.length} nodes.`);
         }
 
         await ns.asleep(sleepInterval);
     }
-};
+}
 
 export function executeAttackAction(ns: NS, action: string, attacker: string, target: string, threads: number, delay: number) {
 
@@ -259,7 +258,7 @@ export async function main(ns: NS) {
             const growCount = Math.ceil(ns.growthAnalyze(target.host, target.maxMoney / money));
             const additionalWeakenCount = weakenCyclesForGrow(growCount);
 
-            ns.tprint(`${target.host} needs ${weakenCount} weaken cycles, ${growCount} grow cycles and ${additionalWeakenCount} additional weaken cycles.`);
+            //ns.tprint(`${target.host} needs ${weakenCount} weaken cycles, ${growCount} grow cycles and ${additionalWeakenCount} additional weaken cycles.`);
 
             const weakensToPerform = Math.min(weakenCount, cyclesAvailable);
             cyclesAvailable -= weakensToPerform;
@@ -304,7 +303,7 @@ export async function main(ns: NS) {
 
         if (batchTargets.length > 1) {
             const cyclesPerTarget = Math.floor((cycles * .75) / batchTargets.length);
-            ns.tprint(`At least two targets ready for H W G W, dumping a majority of the cycles on batches, ${cyclesPerTarget} cycles per batch target.`);
+            ns.tprint(`${batchTargets.length} targets ready for H W G W, ${cyclesPerTarget} cycles per batch target.`);
 
             // a batching we go
             for (const { batch, target } of batchTargets) {
@@ -313,7 +312,7 @@ export async function main(ns: NS) {
                 // cap number of batches to 400.
                 const batchesForThisTarget = Math.min(Math.floor(cyclesPerTarget / batch.totalCycles), 400);
                 if (DEBUG.batcher) {
-                    ns.tprint(`Batch size: ${batch.totalCycles}; batches for this target: ${batchesForThisTarget}.`);
+                    ns.tprint(`${target.host}: Batch size is ${batch.totalCycles}; ${batchesForThisTarget} batches.`);
                 }
                 let batchCount = 0;
                 for (let i = 0; i < batchesForThisTarget; i++) {
@@ -333,10 +332,7 @@ export async function main(ns: NS) {
 
                 longestWait = Math.max(longestWait, delay + actionTimes.weaken);
 
-                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)}.`);
-
-                // DEBUG: break here to run only the one target...
-                break;
+                ns.tprint(`Executed ${batchCount + 1} batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)}.`);
             }
         }
 
@@ -413,7 +409,7 @@ export async function main(ns: NS) {
         const capacity = calculateAvailableCycles(ns, hackingNodes);
         const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
 
-        const attackResults = await attack(hackingNodes, targets);
+        const attackResults = attack(hackingNodes, targets);
 
         const attackResetAt = new Date().getTime() + attackResults.longestWait;
         ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
