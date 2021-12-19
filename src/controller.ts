@@ -16,7 +16,7 @@ const settings = {
     },
     batchDelay: 175,
     targetServerCount: 10,
-    harvestPercent: 0.1,
+    harvestPercent: 0.5,
     homeRamReserved: 64,
     changes: {
         hack: 0.002,
@@ -304,15 +304,14 @@ export async function main(ns: NS) {
             // a batching we go
             for (const { batch, target } of batchTargets) {
                 const actionTimes = getActionTimes(target.host);
-                let debugReported = false;
                 let delay = 0;
-                const batchesForThisTarget = Math.floor(cyclesPerTarget / batch.totalCycles);
-                ns.tprint(`Batch size: ${batch.totalCycles}; batches for this target: ${batchesForThisTarget}.`);
+                // cap number of batches to 400.
+                const batchesForThisTarget = Math.min(Math.floor(cyclesPerTarget / batch.totalCycles), 400);
+                if (DEBUG.batcher) {
+                    ns.tprint(`Batch size: ${batch.totalCycles}; batches for this target: ${batchesForThisTarget}.`);
+                }
                 let batchCount = 0;
                 for (let i = 0; i < batchesForThisTarget; i++) {
-                    if (DEBUG.batcher && !debugReported) {
-                        debugReported = true;
-                    }
 
                     if (cycles < batch.totalCycles) {
                         break;
@@ -322,13 +321,17 @@ export async function main(ns: NS) {
 
                     runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes, i);
                     delay = i * settings.batchDelay;
-                    cycles = calculateAvailableCycles(ns, hackingNodes);
+                    // cycles = calculateAvailableCycles(ns, hackingNodes);
+                    cycles -= batch.totalCycles;
                     batchCount = i;
                 }
 
                 longestWait = Math.max(longestWait, delay + actionTimes.weaken);
 
-                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left.`);
+                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)}.`);
+
+                // DEBUG: break here to run only the one target...
+                break;
             }
         }
 
@@ -399,29 +402,31 @@ export async function main(ns: NS) {
 
     ns.tprint("Starting controller.");
 
-    while (true) {
-        const servers = await explore(ns);
-        const hackingNodes = getHackingNodes(servers);
-        const capacity = calculateAvailableCycles(ns, hackingNodes);
-        const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
+    // while (true) {
+    const servers = await explore(ns);
+    const hackingNodes = getHackingNodes(servers);
+    const capacity = calculateAvailableCycles(ns, hackingNodes);
+    const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
 
-        ns.tprint("BEFORE ATTACK")
+    ns.tprint("BEFORE ATTACK")
 
-        const attackResults = attack(hackingNodes, targets);
-        ns.tprint("AFTER ATTACK")
+    const attackResults = await attack(hackingNodes, targets);
+    ns.tprint("AFTER ATTACK")
 
-        const attackResetAt = new Date().getTime() + attackResults.longestWait;
-        ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
+    const attackResetAt = new Date().getTime() + attackResults.longestWait;
+    ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
 
-        if (DEBUG.dryrun) {
-            ns.tprint("Dryrun mode enabled, exiting.");
-            return;
-        }
-
-        calculateAvailableCycles(ns, hackingNodes);
-
-        await expFarm(ns, hackingNodes, attackResetAt);
+    if (DEBUG.dryrun) {
+        ns.tprint("Dryrun mode enabled, exiting.");
+        return;
     }
+
+    const postruncapacity = calculateAvailableCycles(ns, hackingNodes);
+
+    ns.tprint(`Post-attack capacity: ${postruncapacity}.`);
+
+    // await expFarm(ns, hackingNodes, attackResetAt);
+    // }
 }
 
 export function getHackingNodes(servers: Record<string, Server>) {
@@ -429,15 +434,10 @@ export function getHackingNodes(servers: Record<string, Server>) {
 }
 
 function createHWGWBatch(ns: NS, target: Server): HWGWBatch {
-    const percentToSteal = 0.05;
-
-    const hackCycles = hackThreadsNeededToSteal(ns, target.host, percentToSteal);
-    const growCycles = Math.ceil(ns.growthAnalyze(target.host, (1 + percentToSteal) * 1.03));
+    const hackCycles = hackThreadsNeededToSteal(ns, target.host, settings.harvestPercent);
+    const growCycles = Math.ceil(ns.growthAnalyze(target.host, (1 + settings.harvestPercent) * 1.03));
     const weakenForHack = weakenCyclesForHack(hackCycles);
     const weakenForGrow = weakenCyclesForGrow(growCycles);
-
-    // this is interesting, but fudges up the logic.
-    // const dividedHacks = Math.floor(hackCycles / 3);
 
     return {
         hackCycles: hackCycles,
