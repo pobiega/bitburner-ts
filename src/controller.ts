@@ -10,11 +10,12 @@ const DEBUG = {
 }
 
 const settings = {
+    hwgwSafetyFactor: 1.03,
     earlyGame: {
         threshhold: 10000,
         timeCap: 2 * 60 * 1000,
     },
-    timeCap: 5 * 60 * 1000,
+    timeCap: 10 * 60 * 1000,
     batchDelay: 175,
     targetServerCount: 10,
     harvestPercent: 0.5,
@@ -44,12 +45,12 @@ export function estimateServerWorth(ns: NS, server: ServerNode) {
     return (server.maxMoney * server.growth) / weakenTime;
 }
 
-function weakenCyclesForGrow(growCycles: number) {
-    return Math.max(0, Math.ceil(growCycles * (settings.changes.grow / settings.changes.weaken)));
+function weakenCyclesForGrow(growCycles: number, multiplier: number = 1) {
+    return Math.max(0, Math.ceil(growCycles * (settings.changes.grow / settings.changes.weaken) * multiplier));
 }
 
-function weakenCyclesForHack(hackCycles: number) {
-    return Math.max(0, Math.ceil(hackCycles * (settings.changes.hack / settings.changes.weaken)));
+function weakenCyclesForHack(hackCycles: number, multiplier: number = 1) {
+    return Math.max(0, Math.ceil(hackCycles * (settings.changes.hack / settings.changes.weaken) * multiplier));
 }
 
 export const explore = async (ns: NS) => {
@@ -295,9 +296,7 @@ export async function main(ns: NS) {
 
             if (cyclesNeeded.total === 0) {
                 // this target is fully prepared. We should initiate a H W G W cycle.
-                const batch = createHWGWBatch(ns, target);
-
-                batchTargets.push({ batch, target });
+                batchTargets.push({ batch: createHWGWBatch(ns, target), target });
             }
         }
 
@@ -433,9 +432,9 @@ export function getHackingNodes(servers: Record<string, ServerNode>) {
 
 function createHWGWBatch(ns: NS, target: ServerNode): HWGWBatch {
     const hackCycles = hackThreadsNeededToSteal(ns, target.host, settings.harvestPercent);
-    const growCycles = Math.ceil(ns.growthAnalyze(target.host, (1 + settings.harvestPercent) * 1.03));
-    const weakenForHack = weakenCyclesForHack(hackCycles);
-    const weakenForGrow = weakenCyclesForGrow(growCycles);
+    const growCycles = Math.ceil(ns.growthAnalyze(target.host, 1 / (1 - settings.harvestPercent)) * settings.hwgwSafetyFactor);
+    const weakenForHack = weakenCyclesForHack(hackCycles, settings.hwgwSafetyFactor);
+    const weakenForGrow = weakenCyclesForGrow(growCycles, settings.hwgwSafetyFactor);
 
     return {
         hackCycles: hackCycles,
