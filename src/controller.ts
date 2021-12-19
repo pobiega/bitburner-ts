@@ -1,7 +1,8 @@
 import { NS } from "../types/index.js";
-import { ActionTimes, CycleCount, Server } from 'types';
+import { ActionTimes, CycleCount, HWGWBatch, Server } from 'types';
 
 const DEBUG = {
+    batcher: true,
     targetFinder: false,
     attackActions: false,
     expFarm: false,
@@ -10,11 +11,11 @@ const DEBUG = {
 
 const settings = {
     earlyGame: {
-        threshhold: 5000,
+        threshhold: 50000,
         timeCap: 5 * 60 * 1000,
     },
-    targetServerCount: 2,
-    harvestPercent: 0.5,
+    targetServerCount: 5,
+    harvestPercent: 0.05,
     homeRamReserved: 64,
     changes: {
         hack: 0.002,
@@ -25,7 +26,7 @@ const settings = {
     expFarmTarget: "joesguns"
 };
 
-const msToString = (ms = 0) => {
+export function msToString(ms = 0) {
     if (ms <= 0) {
         return '00:00:00';
     }
@@ -36,207 +37,206 @@ const msToString = (ms = 0) => {
     return new Date(ms).toLocaleTimeString('en-GB');
 }
 
-const weakenCyclesForGrow = (growCycles: number) => {
+export function estimateServerWorth(ns: NS, server: Server) {
+    const weakenTime = ns.getWeakenTime(server.host);
+    return (server.maxMoney * server.growth) / weakenTime;
+}
+
+function weakenCyclesForGrow(growCycles: number) {
     return Math.max(0, Math.ceil(growCycles * (settings.changes.grow / settings.changes.weaken)));
+}
+
+function weakenCyclesForHack(hackCycles: number) {
+    return Math.max(0, Math.ceil(hackCycles * (settings.changes.hack / settings.changes.weaken)));
+}
+
+export const explore = async (ns: NS) => {
+    const servers = {} as Record<string, Server>;
+
+    const getRootAccess = (server: Server) => {
+        const portAccessTools = {
+            "BruteSSH.exe": ns.brutessh,
+            "FTPCrack.exe": ns.ftpcrack,
+            "RelaySMTP.exe": ns.relaysmtp,
+            "HTTPWorm.exe": ns.httpworm,
+            "SQLInject.exe": ns.sqlinject,
+        };
+
+        let openPorts = 0;
+
+        for (const [name, func] of Object.entries(portAccessTools)) {
+            if (ns.fileExists(name)) {
+                func(server.host);
+                openPorts++;
+            }
+        }
+
+        if (openPorts >= server.ports) {
+            ns.nuke(server.host);
+            return true;
+        }
+        return false;
+    };
+
+    const queue = ["home"];
+
+    while (queue.length > 0) {
+        const host = queue.shift()!;
+
+        servers[host] = {
+            host: host,
+            ports: ns.getServerNumPortsRequired(host),
+            hackingLevel: ns.getServerRequiredHackingLevel(host),
+            maxMoney: ns.getServerMaxMoney(host),
+            growth: ns.getServerGrowth(host),
+            minSecurityLevel: ns.getServerMinSecurityLevel(host),
+            maxRam: ns.getServerMaxRam(host),
+            hasRootAccess: ns.hasRootAccess(host),
+            files: ns.ls(host),
+            availableCycles: 0,
+        };
+
+        if (host !== "home") {
+            await ns.scp(settings.attackScripts, "home", host);
+        }
+
+        if (!servers[host].hasRootAccess) {
+            servers[host].hasRootAccess = getRootAccess(servers[host]);
+        }
+
+        const neighbors = ns.scan(host);
+
+        for (const hostname of neighbors) {
+            if (!servers[hostname]) {
+                queue.push(hostname);
+            }
+        }
+    }
+
+    servers["home"].maxRam = Math.max(0, servers["home"].maxRam - settings.homeRamReserved);
+
+    return servers;
 };
 
-const weakenCyclesForHack = (hackCycles: number) => {
-    return Math.max(0, Math.ceil(hackCycles * (settings.changes.hack / settings.changes.weaken)));
+export const calculateAvailableCycles = (ns: NS, nodes: Server[]) => {
+    let total = 0;
+    for (const node of nodes) {
+        if (node.hasRootAccess) {
+            const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
+            node.availableCycles = Math.floor(availableRam / 1.75)
+            total += node.availableCycles;
+        }
+    }
+
+    return total;
+};
+
+const expFarm = async (ns: NS, hackingNodes: Server[], stopTime: number) => {
+    const expFarmTime = ns.getHackTime(settings.expFarmTarget);
+    const sleepInterval = expFarmTime + 100;
+
+    while (new Date().getTime() < stopTime) {
+        const totalCycles = calculateAvailableCycles(ns, hackingNodes);
+
+        hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
+
+        for (const node of hackingNodes) {
+            if (!DEBUG.dryrun) {
+                executeAttackAction(ns, "weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
+            }
+        }
+
+        if (DEBUG.expFarm) {
+            ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
+        }
+
+        await ns.asleep(sleepInterval);
+    }
+};
+
+export function executeAttackAction(ns: NS, action: string, attacker: string, target: string, threads: number, delay: number) {
+
+    if (!DEBUG.dryrun) {
+        const retval = ns.exec(action, attacker, threads, target, threads, delay);
+        if (retval === 0) {
+            throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads!`);
+        }
+    }
+}
+
+const locateTargets = (ns: NS, servers: Record<string, Server>, capacity: number) => {
+    const isEarlyGame = capacity < settings.earlyGame.threshhold;
+
+    if (isEarlyGame) {
+        ns.tprint(`Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)}.`);
+    }
+
+    const hackingLevel = ns.getHackingLevel();
+
+    const potentialTargets = [];
+
+    for (const [hostname, server] of Object.entries(servers)) {
+        if (server.hackingLevel > hackingLevel || !server.hasRootAccess) {
+            continue;
+        }
+
+        if (hostname === "home" || hostname === "n00dles") {
+            continue;
+        }
+
+        const money = ns.getServerMoneyAvailable(server.host);
+
+        if (server.maxMoney < 1000000 || money < 1000) {
+            continue;
+        }
+
+        const weakenTime = ns.getWeakenTime(server.host);
+
+        if (isEarlyGame && weakenTime > settings.earlyGame.timeCap) {
+            continue;
+        }
+
+        const estimatedWorth = estimateServerWorth(ns, server);
+        potentialTargets.push({ estimatedWorth, hostname });
+    }
+
+    potentialTargets.sort((a, b) => b.estimatedWorth - a.estimatedWorth);
+
+    const topServers = potentialTargets.slice(0, Math.min(settings.targetServerCount, potentialTargets.length));
+
+    if (DEBUG.targetFinder) {
+        ns.tprint(`Top ${topServers.length} targets:`);
+        for (const target of topServers) {
+            ns.tprint(`${target.hostname} - (${target.estimatedWorth})`);
+        }
+
+        ns.exit();
+    }
+
+    return topServers;
+};
+
+export const hackThreadsNeededToSteal = (ns: NS, target: string, percent: number): number => {
+    return Math.ceil(percent / ns.hackAnalyze(target));
 };
 
 export async function main(ns: NS) {
-    const servers = {} as Record<string, Server>;
+    const attack = (hackingNodes: Server[], targets: Server[]) => {
 
-    const explore = async () => {
+        const getActionTimes = (target: string): ActionTimes => {
+            const hackTime = ns.getHackTime(target);
+            const weakenTime = ns.getWeakenTime(target);
+            const growTime = ns.getGrowTime(target);
 
-        const getRootAccess = (server: Server) => {
-            const portAccessTools = {
-                "BruteSSH.exe": ns.brutessh,
-                "FTPCrack.exe": ns.ftpcrack,
-                "RelaySMTP.exe": ns.relaysmtp,
-                "HTTPWorm.exe": ns.httpworm,
-                "SQLInject.exe": ns.sqlinject,
-            };
-
-            let openPorts = 0;
-
-            for (const [name, func] of Object.entries(portAccessTools)) {
-                if (ns.fileExists(name)) {
-                    func(server.host);
-                    openPorts++;
-                }
-            }
-
-            if (openPorts >= server.ports) {
-                ns.nuke(server.host);
-                return true;
-            }
-            return false;
-        };
-
-        const queue = ["home"];
-
-        while (queue.length > 0) {
-            const host = queue.shift()!;
-
-            servers[host] = {
-                host: host,
-                ports: ns.getServerNumPortsRequired(host),
-                hackingLevel: ns.getServerRequiredHackingLevel(host),
-                maxMoney: ns.getServerMaxMoney(host),
-                growth: ns.getServerGrowth(host),
-                minSecurityLevel: ns.getServerMinSecurityLevel(host),
-                maxRam: ns.getServerMaxRam(host),
-                hasRootAccess: ns.hasRootAccess(host),
-                files: ns.ls(host),
-                availableCycles: 0,
-            };
-
-            if (host !== "home") {
-                await ns.scp(settings.attackScripts, "home", host);
-            }
-
-            if (!servers[host].hasRootAccess) {
-                servers[host].hasRootAccess = getRootAccess(servers[host]);
-            }
-
-            const neighbors = ns.scan(host);
-
-            for (const hostname of neighbors) {
-                if (!servers[hostname]) {
-                    queue.push(hostname);
-                }
-            }
-        }
-
-        servers["home"].maxRam = Math.max(0, servers["home"].maxRam - settings.homeRamReserved);
-
-        ns.tprint(`Found ${Object.keys(servers).length} servers, ${Object.values(servers).filter(s => s.hasRootAccess).length} with root access`);
-    };
-
-    const calculateAvailableCycles = () => {
-        let total = 0;
-        for (const [hostname, node] of Object.entries(servers)) {
-            if (node.hasRootAccess) {
-
-                const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
-                node.availableCycles = Math.floor(availableRam / 1.75)
-                total += node.availableCycles;
-            }
-        }
-
-        return total;
-    };
-
-
-    const locateTargets = (capacity: number) => {
-        const isEarlyGame = capacity < settings.earlyGame.threshhold;
-
-        if (isEarlyGame) {
-            ns.tprint(`Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)}.`);
-        }
-
-        const hackingLevel = ns.getHackingLevel();
-
-        const potentialTargets = [];
-
-        for (const [hostname, server] of Object.entries(servers)) {
-            if (server.hackingLevel > hackingLevel || !server.hasRootAccess) {
-                continue;
-            }
-
-            if (hostname === "home") {
-                continue;
-            }
-
-            const money = ns.getServerMoneyAvailable(server.host);
-
-            if (server.maxMoney < 1000000 || money < 1000) {
-                continue;
-            }
-
-            const weakenTime = ns.getWeakenTime(server.host);
-
-            if (isEarlyGame && weakenTime > settings.earlyGame.timeCap) {
-                continue;
-            }
-
-            const estimatedWorth = server.maxMoney / weakenTime;
-            potentialTargets.push({ estimatedWorth, hostname });
-        }
-
-        potentialTargets.sort((a, b) => b.estimatedWorth - a.estimatedWorth);
-
-        const topServers = potentialTargets.slice(0, Math.min(settings.targetServerCount, potentialTargets.length));
-
-        if (DEBUG.targetFinder) {
-            ns.tprint(`Top ${topServers.length} targets:`);
-            for (const target of topServers) {
-                ns.tprint(`${target.hostname} - (${target.estimatedWorth})`);
-            }
-
-            ns.exit();
-        }
-
-        return topServers;
-    };
-
-    const expFarm = async (stopTime: number) => {
-        const expFarmTime = ns.getHackTime(settings.expFarmTarget);
-        const sleepInterval = expFarmTime + 100;
-
-        while (new Date().getTime() < stopTime) {
-
-            let hackingNodes = Object.values(servers).filter(s => s.hasRootAccess);
-
-            let totalCycles = 0;
-
-            hackingNodes.forEach(node => {
-                const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
-                node.availableCycles = Math.floor(availableRam / 1.75);
-                totalCycles += node.availableCycles;
-            });
-
-            hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
-
-            for (const node of hackingNodes) {
-                if (!DEBUG.dryrun) {
-                    executeAttackAction("weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
-                }
-            }
-
-            if (DEBUG.expFarm) {
-                ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
-            }
-
-            await ns.asleep(sleepInterval);
-        }
-    };
-
-    const executeAttackAction = (action: string, attacker: string, target: string, threads: number, delay: number, debug: boolean = false) => {
-
-        if (!DEBUG.dryrun) {
-            const retval = ns.exec(action, attacker, threads, target, threads, delay, debug);
-            if (retval === 0) {
-                throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads!`);
-            }
-        }
-    };
-
-    const attack = (targets: Server[]) => {
-
-        const getActionTimes = (host: string): ActionTimes => {
-            const hackTime = ns.getHackTime(host);
-            const weakenTime = ns.getWeakenTime(host);
-            const growTime = ns.getGrowTime(host);
-
-            const growDelay = Math.max(0, weakenTime - growTime) + 30;
+            const growDelay = Math.max(0, weakenTime - growTime) + 15;
+            const hackDelay = Math.max(0, weakenTime - hackTime) + 15;
 
             return {
                 hack: hackTime,
                 weaken: weakenTime,
                 grow: growTime,
                 growDelay: growDelay,
+                hackDelay: hackDelay,
                 additionalWeakenDelay: 1000,
             }
         };
@@ -271,21 +271,8 @@ export async function main(ns: NS) {
             };
         };
 
-        const hackThreadsNeededToSteal = (target: Server, percent: number): number => {
-            const oneThread = ns.hackAnalyze(target.host);
-
-            return Math.ceil(percent / oneThread);
-        };
-
-        let hackingNodes = Object.values(servers).filter(s => s.hasRootAccess);
-
         // update available cycles
-        hackingNodes.forEach(node => {
-            const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
-            node.availableCycles = Math.floor(availableRam / 1.75)
-        });
-
-        const totalCycles = hackingNodes.reduce((total, server) => total + Math.floor(server.maxRam / 1.75), 0);
+        const totalCycles = calculateAvailableCycles(ns, hackingNodes);
         ns.tprint(`Total cycles available for use: ${totalCycles}`);
 
         let cycles = totalCycles;
@@ -311,67 +298,79 @@ export async function main(ns: NS) {
                 break;
             }
 
-            let harvestThreads = 0;
-
             if (cyclesNeeded.total == 0) {
-                harvestThreads = hackThreadsNeededToSteal(target, settings.harvestPercent);
-                const addWeaken = weakenCyclesForHack(harvestThreads);
-                cyclesNeeded.additionalWeakens += addWeaken;
-                cyclesNeeded.total += addWeaken;
-                ns.tprint(`${target.host} will be harvested with ${harvestThreads} threads.`);
+                let debugReported = false;
+                // this target is fully prepared. We should initiate a H W G W cycle.
+                let delay = 0;
+                let batchCount = 0;
+                while (true) {
+                    const batch = createHWGWBatch(ns, target);
+
+                    if (DEBUG.batcher && !debugReported) {
+                        ns.tprint(`Batch size: ${batch.totalCycles}`);
+                        debugReported = true;
+                    }
+
+                    if (cycles < batch.totalCycles) {
+                        break;
+                    }
+
+                    // execute the batch.
+
+                    runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes);
+                    batchCount++;
+
+                    delay += 500;
+
+                    cycles = calculateAvailableCycles(ns, hackingNodes);
+                }
+
+                longestWait = Math.max(longestWait, delay + actionTimes.weaken);
+
+                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left.`);
             }
+            else {
+                // we need to grow and weaken
+                for (const node of hackingNodes) {
+                    if (cycles <= 0) {
+                        break;
+                    }
 
-            for (const node of hackingNodes) {
-                if (cycles <= 0) {
-                    break;
-                }
+                    if (cyclesNeeded.weaken > 0 && node.availableCycles > 0) {
+                        const count = Math.min(cyclesNeeded.weaken, node.availableCycles);
+                        executeAttackAction(ns, "weaken.js", node.host, target.host, count, 0);
+                        cycles -= count;
+                        node.availableCycles -= count;
+                        cyclesNeeded.weaken -= count;
 
-                if (harvestThreads > 0 && node.availableCycles > 0) {
-                    const count = Math.min(harvestThreads, node.availableCycles);
-                    executeAttackAction("hack.js", node.host, target.host, count, 0);
-                    cycles -= count;
-                    node.availableCycles -= count;
-                    harvestThreads -= count;
+                        longestWait = Math.max(longestWait, actionTimes.weaken);
 
-                    longestWait = Math.max(longestWait, actionTimes.hack);
+                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "weaken", count, cyclesNeeded.weaken, node.availableCycles, cycles);
+                    }
 
-                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "hack", count, harvestThreads, node.availableCycles, cycles);
-                }
+                    if (cyclesNeeded.grow > 0 && node.availableCycles > 0) {
+                        const count = Math.min(cyclesNeeded.grow, node.availableCycles);
+                        executeAttackAction(ns, "grow.js", node.host, target.host, count, actionTimes.growDelay);
+                        cycles -= count;
+                        node.availableCycles -= count;
+                        cyclesNeeded.grow -= count;
 
-                if (cyclesNeeded.weaken > 0 && node.availableCycles > 0) {
-                    const count = Math.min(cyclesNeeded.weaken, node.availableCycles);
-                    executeAttackAction("weaken.js", node.host, target.host, count, 0);
-                    cycles -= count;
-                    node.availableCycles -= count;
-                    cyclesNeeded.weaken -= count;
+                        longestWait = Math.max(longestWait, actionTimes.growDelay + actionTimes.grow);
 
-                    longestWait = Math.max(longestWait, actionTimes.weaken);
+                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "grow", count, cyclesNeeded.grow, node.availableCycles, cycles);
+                    }
 
-                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "weaken", count, cyclesNeeded.weaken, node.availableCycles, cycles);
-                }
+                    if (cyclesNeeded.additionalWeakens > 0 && node.availableCycles > 0) {
+                        const count = Math.min(cyclesNeeded.additionalWeakens, node.availableCycles);
+                        executeAttackAction(ns, "weaken.js", node.host, target.host, count, actionTimes.additionalWeakenDelay);
+                        cycles -= count;
+                        node.availableCycles -= count;
+                        cyclesNeeded.additionalWeakens -= count;
 
-                if (cyclesNeeded.grow > 0 && node.availableCycles > 0) {
-                    const count = Math.min(cyclesNeeded.grow, node.availableCycles);
-                    executeAttackAction("grow.js", node.host, target.host, count, actionTimes.growDelay);
-                    cycles -= count;
-                    node.availableCycles -= count;
-                    cyclesNeeded.grow -= count;
+                        longestWait = Math.max(longestWait, actionTimes.additionalWeakenDelay + actionTimes.weaken);
 
-                    longestWait = Math.max(longestWait, actionTimes.growDelay + actionTimes.grow);
-
-                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "grow", count, cyclesNeeded.grow, node.availableCycles, cycles);
-                }
-
-                if (cyclesNeeded.additionalWeakens > 0 && node.availableCycles > 0) {
-                    const count = Math.min(cyclesNeeded.additionalWeakens, node.availableCycles);
-                    executeAttackAction("weaken.js", node.host, target.host, count, actionTimes.additionalWeakenDelay);
-                    cycles -= count;
-                    node.availableCycles -= count;
-                    cyclesNeeded.additionalWeakens -= count;
-
-                    longestWait = Math.max(longestWait, actionTimes.additionalWeakenDelay + actionTimes.weaken);
-
-                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "+weaken", count, cyclesNeeded.additionalWeakens, node.availableCycles, cycles);
+                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "+weaken", count, cyclesNeeded.additionalWeakens, node.availableCycles, cycles);
+                    }
                 }
             }
 
@@ -383,10 +382,12 @@ export async function main(ns: NS) {
     };
 
     while (true) {
-        await explore();
-        const capacity = calculateAvailableCycles();
-        const targets = locateTargets(capacity).map(({ hostname }) => servers[hostname]);
-        const attackResults = attack(targets);
+        const servers = await explore(ns);
+        const hackingNodes = getHackingNodes(servers);
+        const capacity = calculateAvailableCycles(ns, hackingNodes);
+        const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
+
+        const attackResults = attack(hackingNodes, targets);
 
         const attackResetAt = new Date().getTime() + attackResults.longestWait;
         ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
@@ -396,6 +397,91 @@ export async function main(ns: NS) {
             return;
         }
 
-        await expFarm(attackResetAt);
+        await expFarm(ns, hackingNodes, attackResetAt);
+    }
+}
+
+export function getHackingNodes(servers: Record<string, Server>) {
+    return Object.values(servers).filter(s => s.hasRootAccess);
+}
+
+function createHWGWBatch(ns: NS, target: Server): HWGWBatch {
+    const percentToSteal = 0.05;
+
+    const hackCycles = hackThreadsNeededToSteal(ns, target.host, percentToSteal);
+    const growCycles = Math.ceil(ns.growthAnalyze(target.host, (1 + percentToSteal) * 1.03));
+    const weakenForHack = weakenCyclesForHack(hackCycles);
+    const weakenForGrow = weakenCyclesForGrow(growCycles);
+
+    // this is interesting, but fudges up the logic.
+    // const dividedHacks = Math.floor(hackCycles / 3);
+
+    return {
+        hackCycles: hackCycles,
+        weakenForHack,
+        growCycles,
+        weakenForGrow,
+        totalCycles: hackCycles + weakenForHack + growCycles + weakenForGrow,
+    };
+}
+
+function runBatch(ns: NS, target: string, hackingNodes: Server[], batch: HWGWBatch, delay: number, actionTimes: ActionTimes) {
+    let { hackCycles, growCycles, weakenForHack, weakenForGrow } = batch;
+
+    // first run hacks
+    for (const node of hackingNodes) {
+        if (hackCycles <= 0) {
+            break;
+        }
+
+        const count = Math.min(hackCycles, node.availableCycles);
+        if (count > 0) {
+            executeAttackAction(ns, "hack.js", node.host, target, count, delay + actionTimes.hackDelay);
+            hackCycles -= count;
+            node.availableCycles -= count;
+        }
+    }
+
+    // start the weakens
+    for (const node of hackingNodes) {
+        if (weakenForHack <= 0) {
+            break;
+        }
+
+        const count = Math.min(weakenForHack, node.availableCycles);
+        if (count > 0) {
+            executeAttackAction(ns, "weaken.js", node.host, target, count, delay);
+            weakenForHack -= count;
+            node.availableCycles -= count;
+        }
+    }
+
+    // start the grows
+    for (const node of hackingNodes) {
+        if (growCycles <= 0) {
+            break;
+        }
+
+        const count = Math.min(growCycles, node.availableCycles);
+        if (count > 0) {
+            executeAttackAction(ns, "grow.js", node.host, target, count, delay + actionTimes.growDelay);
+            growCycles -= count;
+            node.availableCycles -= count;
+        };
+
+    }
+
+    // start the last weakens
+    for (const node of hackingNodes) {
+        if (weakenForGrow <= 0) {
+            break;
+        }
+
+        const count = Math.min(weakenForGrow, node.availableCycles);
+        if (count > 0) {
+            executeAttackAction(ns, "weaken.js", node.host, target, count, delay + 20);
+            weakenForGrow -= count;
+            node.availableCycles -= count;
+        }
     }
 }

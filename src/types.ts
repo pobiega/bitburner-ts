@@ -16,6 +16,7 @@ export interface ActionTimes {
     grow: number;
     weaken: number;
     growDelay: number;
+    hackDelay: number;
     additionalWeakenDelay: number;
 }
 
@@ -25,3 +26,11 @@ export interface CycleCount {
     additionalWeakens: number;
     total: number;
 }
+
+export interface HWGWBatch {
+    hackCycles: number;
+    weakenForHack: number;
+    growCycles: number;
+    weakenForGrow: number;
+    totalCycles: number;
+};
