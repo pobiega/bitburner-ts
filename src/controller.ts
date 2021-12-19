@@ -11,11 +11,12 @@ const DEBUG = {
 
 const settings = {
     earlyGame: {
-        threshhold: 50000,
+        threshhold: 10000,
         timeCap: 5 * 60 * 1000,
     },
-    targetServerCount: 5,
-    harvestPercent: 0.05,
+    batchDelay: 175,
+    targetServerCount: 10,
+    harvestPercent: 0.1,
     homeRamReserved: 64,
     changes: {
         hack: 0.002,
@@ -157,9 +158,11 @@ const expFarm = async (ns: NS, hackingNodes: Server[], stopTime: number) => {
 export function executeAttackAction(ns: NS, action: string, attacker: string, target: string, threads: number, delay: number) {
 
     if (!DEBUG.dryrun) {
-        const retval = ns.exec(action, attacker, threads, target, threads, delay);
+        const retval = ns.exec(action, attacker, threads, target, threads, delay, uuid());
         if (retval === 0) {
-            throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads!`);
+            const serverRam = ns.getServerMaxRam(attacker) - ns.getServerUsedRam(attacker);
+            const threadsThatFit = Math.floor(serverRam / 1.75);
+            throw new Error(`Failed to execute ${action} on ${attacker} with ${threads} threads, node has space for ${threadsThatFit} threads!`);
         }
     }
 }
@@ -281,6 +284,54 @@ export async function main(ns: NS) {
 
         const debugAttackActionFormat = "DEBUG: attacker %s; target %s; action %s, count %d; need %d; left: node %d; total %d;";
 
+        const batchTargets = [];
+
+        for (const target of targets) {
+            const cyclesNeeded = calculatePrepare(cycles, target);
+
+            if (cyclesNeeded.total === 0) {
+                // this target is fully prepared. We should initiate a H W G W cycle.
+                const batch = createHWGWBatch(ns, target);
+
+                batchTargets.push({ batch, target });
+            }
+        }
+
+        if (batchTargets.length > 1) {
+            const cyclesPerTarget = Math.floor((cycles * .75) / batchTargets.length);
+            ns.tprint(`At least two targets ready for H W G W, dumping a majority of the cycles on batches, ${cyclesPerTarget} cycles per batch target.`);
+
+            // a batching we go
+            for (const { batch, target } of batchTargets) {
+                const actionTimes = getActionTimes(target.host);
+                let debugReported = false;
+                let delay = 0;
+                const batchesForThisTarget = Math.floor(cyclesPerTarget / batch.totalCycles);
+                ns.tprint(`Batch size: ${batch.totalCycles}; batches for this target: ${batchesForThisTarget}.`);
+                let batchCount = 0;
+                for (let i = 0; i < batchesForThisTarget; i++) {
+                    if (DEBUG.batcher && !debugReported) {
+                        debugReported = true;
+                    }
+
+                    if (cycles < batch.totalCycles) {
+                        break;
+                    }
+
+                    // execute the batch.
+
+                    runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes, i);
+                    delay = i * settings.batchDelay;
+                    cycles = calculateAvailableCycles(ns, hackingNodes);
+                    batchCount = i;
+                }
+
+                longestWait = Math.max(longestWait, delay + actionTimes.weaken);
+
+                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left.`);
+            }
+        }
+
         for (const target of targets) {
 
             if (cycles <= 0) {
@@ -298,88 +349,55 @@ export async function main(ns: NS) {
                 break;
             }
 
-            if (cyclesNeeded.total == 0) {
-                let debugReported = false;
-                // this target is fully prepared. We should initiate a H W G W cycle.
-                let delay = 0;
-                let batchCount = 0;
-                while (true) {
-                    const batch = createHWGWBatch(ns, target);
-
-                    if (DEBUG.batcher && !debugReported) {
-                        ns.tprint(`Batch size: ${batch.totalCycles}`);
-                        debugReported = true;
-                    }
-
-                    if (cycles < batch.totalCycles) {
-                        break;
-                    }
-
-                    // execute the batch.
-
-                    runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes);
-                    batchCount++;
-
-                    delay += 500;
-
-                    cycles = calculateAvailableCycles(ns, hackingNodes);
+            // we need to grow and weaken
+            for (const node of hackingNodes) {
+                if (cycles <= 0) {
+                    break;
                 }
 
-                longestWait = Math.max(longestWait, delay + actionTimes.weaken);
+                if (cyclesNeeded.weaken > 0 && node.availableCycles > 0) {
+                    const count = Math.min(cyclesNeeded.weaken, node.availableCycles);
+                    executeAttackAction(ns, "weaken.js", node.host, target.host, count, 0);
+                    cycles -= count;
+                    node.availableCycles -= count;
+                    cyclesNeeded.weaken -= count;
 
-                ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left.`);
-            }
-            else {
-                // we need to grow and weaken
-                for (const node of hackingNodes) {
-                    if (cycles <= 0) {
-                        break;
-                    }
+                    longestWait = Math.max(longestWait, actionTimes.weaken);
 
-                    if (cyclesNeeded.weaken > 0 && node.availableCycles > 0) {
-                        const count = Math.min(cyclesNeeded.weaken, node.availableCycles);
-                        executeAttackAction(ns, "weaken.js", node.host, target.host, count, 0);
-                        cycles -= count;
-                        node.availableCycles -= count;
-                        cyclesNeeded.weaken -= count;
+                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "weaken", count, cyclesNeeded.weaken, node.availableCycles, cycles);
+                }
 
-                        longestWait = Math.max(longestWait, actionTimes.weaken);
+                if (cyclesNeeded.grow > 0 && node.availableCycles > 0) {
+                    const count = Math.min(cyclesNeeded.grow, node.availableCycles);
+                    executeAttackAction(ns, "grow.js", node.host, target.host, count, actionTimes.growDelay);
+                    cycles -= count;
+                    node.availableCycles -= count;
+                    cyclesNeeded.grow -= count;
 
-                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "weaken", count, cyclesNeeded.weaken, node.availableCycles, cycles);
-                    }
+                    longestWait = Math.max(longestWait, actionTimes.growDelay + actionTimes.grow);
 
-                    if (cyclesNeeded.grow > 0 && node.availableCycles > 0) {
-                        const count = Math.min(cyclesNeeded.grow, node.availableCycles);
-                        executeAttackAction(ns, "grow.js", node.host, target.host, count, actionTimes.growDelay);
-                        cycles -= count;
-                        node.availableCycles -= count;
-                        cyclesNeeded.grow -= count;
+                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "grow", count, cyclesNeeded.grow, node.availableCycles, cycles);
+                }
 
-                        longestWait = Math.max(longestWait, actionTimes.growDelay + actionTimes.grow);
+                if (cyclesNeeded.additionalWeakens > 0 && node.availableCycles > 0) {
+                    const count = Math.min(cyclesNeeded.additionalWeakens, node.availableCycles);
+                    executeAttackAction(ns, "weaken.js", node.host, target.host, count, actionTimes.additionalWeakenDelay);
+                    cycles -= count;
+                    node.availableCycles -= count;
+                    cyclesNeeded.additionalWeakens -= count;
 
-                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "grow", count, cyclesNeeded.grow, node.availableCycles, cycles);
-                    }
+                    longestWait = Math.max(longestWait, actionTimes.additionalWeakenDelay + actionTimes.weaken);
 
-                    if (cyclesNeeded.additionalWeakens > 0 && node.availableCycles > 0) {
-                        const count = Math.min(cyclesNeeded.additionalWeakens, node.availableCycles);
-                        executeAttackAction(ns, "weaken.js", node.host, target.host, count, actionTimes.additionalWeakenDelay);
-                        cycles -= count;
-                        node.availableCycles -= count;
-                        cyclesNeeded.additionalWeakens -= count;
-
-                        longestWait = Math.max(longestWait, actionTimes.additionalWeakenDelay + actionTimes.weaken);
-
-                        if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "+weaken", count, cyclesNeeded.additionalWeakens, node.availableCycles, cycles);
-                    }
+                    if (DEBUG.attackActions) ns.tprintf(debugAttackActionFormat, node.host, target.host, "+weaken", count, cyclesNeeded.additionalWeakens, node.availableCycles, cycles);
                 }
             }
-
-            ns.tprint(`${cycles} remaining cycles after using ${cyclesNeeded.total} cycles for ${target.host}.`);
         }
 
         ns.tprint(`Longest wait: ${ns.tFormat(longestWait)}. Remaining cycles: ${cycles}.`);
         return { longestWait, remainingCycles: cycles };
     };
+
+    ns.tprint("Starting controller.");
 
     while (true) {
         const servers = await explore(ns);
@@ -387,7 +405,10 @@ export async function main(ns: NS) {
         const capacity = calculateAvailableCycles(ns, hackingNodes);
         const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
 
+        ns.tprint("BEFORE ATTACK")
+
         const attackResults = attack(hackingNodes, targets);
+        ns.tprint("AFTER ATTACK")
 
         const attackResetAt = new Date().getTime() + attackResults.longestWait;
         ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
@@ -396,6 +417,8 @@ export async function main(ns: NS) {
             ns.tprint("Dryrun mode enabled, exiting.");
             return;
         }
+
+        calculateAvailableCycles(ns, hackingNodes);
 
         await expFarm(ns, hackingNodes, attackResetAt);
     }
@@ -425,7 +448,7 @@ function createHWGWBatch(ns: NS, target: Server): HWGWBatch {
     };
 }
 
-function runBatch(ns: NS, target: string, hackingNodes: Server[], batch: HWGWBatch, delay: number, actionTimes: ActionTimes) {
+function runBatch(ns: NS, target: string, hackingNodes: Server[], batch: HWGWBatch, delay: number, actionTimes: ActionTimes, batchId: number) {
     let { hackCycles, growCycles, weakenForHack, weakenForGrow } = batch;
 
     // first run hacks
@@ -484,4 +507,10 @@ function runBatch(ns: NS, target: string, hackingNodes: Server[], batch: HWGWBat
             node.availableCycles -= count;
         }
     }
+}
+
+let uuidCounter = 0;
+
+function uuid(): string | number | boolean {
+    return uuidCounter++;
 }
