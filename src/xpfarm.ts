@@ -1,6 +1,6 @@
 import { NS } from "../types/index.js";
 
-import { Server } from 'types';
+import { ServerNode } from 'types';
 
 const settings = {
     homeRamReserved: 64,
@@ -9,11 +9,11 @@ const settings = {
 };
 
 export async function main(ns: NS) {
-    const servers = {} as Record<string, Server>;
+    const servers = {} as Record<string, ServerNode>;
 
     const explore = async () => {
 
-        const getRootAccess = (server: Server) => {
+        const getRootAccess = (server: ServerNode) => {
             const portAccessTools = {
                 "BruteSSH.exe": ns.brutessh,
                 "FTPCrack.exe": ns.ftpcrack,
@@ -102,7 +102,7 @@ export async function main(ns: NS) {
             executeAttackAction("weaken.js", node.host, settings.expFarmTarget, node.availableCycles, 0);
         }
 
-        ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes.`);
+        ns.tprint(`Exp farming with ${totalCycles} cycles on ${hackingNodes.length} nodes. Waking up in ${ns.tFormat(sleepInterval)}.`);
 
         await ns.asleep(sleepInterval);
     }

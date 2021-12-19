@@ -12,8 +12,9 @@ const DEBUG = {
 const settings = {
     earlyGame: {
         threshhold: 10000,
-        timeCap: 5 * 60 * 1000,
+        timeCap: 2 * 60 * 1000,
     },
+    timeCap: 5 * 60 * 1000,
     batchDelay: 175,
     targetServerCount: 10,
     harvestPercent: 0.5,
@@ -195,7 +196,11 @@ const locateTargets = (ns: NS, servers: Record<string, ServerNode>, capacity: nu
 
         const weakenTime = ns.getWeakenTime(server.host);
 
+
         if (isEarlyGame && weakenTime > settings.earlyGame.timeCap) {
+            continue;
+        }
+        else if (weakenTime > settings.timeCap) {
             continue;
         }
 
@@ -402,31 +407,28 @@ export async function main(ns: NS) {
 
     ns.tprint("Starting controller.");
 
-    // while (true) {
-    const servers = await explore(ns);
-    const hackingNodes = getHackingNodes(servers);
-    const capacity = calculateAvailableCycles(ns, hackingNodes);
-    const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
+    while (true) {
+        const servers = await explore(ns);
+        const hackingNodes = getHackingNodes(servers);
+        const capacity = calculateAvailableCycles(ns, hackingNodes);
+        const targets = locateTargets(ns, servers, capacity).map(({ hostname }) => servers[hostname]);
 
-    ns.tprint("BEFORE ATTACK")
+        const attackResults = await attack(hackingNodes, targets);
 
-    const attackResults = await attack(hackingNodes, targets);
-    ns.tprint("AFTER ATTACK")
+        const attackResetAt = new Date().getTime() + attackResults.longestWait;
+        ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
 
-    const attackResetAt = new Date().getTime() + attackResults.longestWait;
-    ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
+        if (DEBUG.dryrun) {
+            ns.tprint("Dryrun mode enabled, exiting.");
+            return;
+        }
 
-    if (DEBUG.dryrun) {
-        ns.tprint("Dryrun mode enabled, exiting.");
-        return;
+        const postruncapacity = calculateAvailableCycles(ns, hackingNodes);
+
+        ns.tprint(`Post-attack capacity: ${postruncapacity}.`);
+
+        await expFarm(ns, hackingNodes, attackResetAt);
     }
-
-    const postruncapacity = calculateAvailableCycles(ns, hackingNodes);
-
-    ns.tprint(`Post-attack capacity: ${postruncapacity}.`);
-
-    // await expFarm(ns, hackingNodes, attackResetAt);
-    // }
 }
 
 export function getHackingNodes(servers: Record<string, ServerNode>) {
