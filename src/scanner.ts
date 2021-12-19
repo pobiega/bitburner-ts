@@ -1,11 +1,11 @@
 import { NS } from "../types/index.js";
 import { explore, estimateServerWorth } from "./controller.js";
-import { Server } from "./types.js";
+import { ServerNode } from "./types.js";
 
 export async function main(ns: NS) {
     const servers = await explore(ns);
 
-    let filter = (server: Server): boolean => server.maxMoney > 0;
+    let filter = (server: ServerNode): boolean => server.maxMoney > 0;
 
     const findWeirdServers = ns.args[0] !== undefined;
 

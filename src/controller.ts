@@ -1,5 +1,5 @@
 import { NS } from "../types/index.js";
-import { ActionTimes, CycleCount, HWGWBatch, Server } from 'types';
+import { ActionTimes, CycleCount, HWGWBatch, ServerNode } from 'types';
 
 const DEBUG = {
     batcher: true,
@@ -38,7 +38,7 @@ export function msToString(ms = 0) {
     return new Date(ms).toLocaleTimeString('en-GB');
 }
 
-export function estimateServerWorth(ns: NS, server: Server) {
+export function estimateServerWorth(ns: NS, server: ServerNode) {
     const weakenTime = ns.getWeakenTime(server.host);
     return (server.maxMoney * server.growth) / weakenTime;
 }
@@ -52,9 +52,9 @@ function weakenCyclesForHack(hackCycles: number) {
 }
 
 export const explore = async (ns: NS) => {
-    const servers = {} as Record<string, Server>;
+    const servers = {} as Record<string, ServerNode>;
 
-    const getRootAccess = (server: Server) => {
+    const getRootAccess = (server: ServerNode) => {
         const portAccessTools = {
             "BruteSSH.exe": ns.brutessh,
             "FTPCrack.exe": ns.ftpcrack,
@@ -119,7 +119,7 @@ export const explore = async (ns: NS) => {
     return servers;
 };
 
-export const calculateAvailableCycles = (ns: NS, nodes: Server[]) => {
+export const calculateAvailableCycles = (ns: NS, nodes: ServerNode[]) => {
     let total = 0;
     for (const node of nodes) {
         if (node.hasRootAccess) {
@@ -132,7 +132,7 @@ export const calculateAvailableCycles = (ns: NS, nodes: Server[]) => {
     return total;
 };
 
-const expFarm = async (ns: NS, hackingNodes: Server[], stopTime: number) => {
+const expFarm = async (ns: NS, hackingNodes: ServerNode[], stopTime: number) => {
     const expFarmTime = ns.getHackTime(settings.expFarmTarget);
     const sleepInterval = expFarmTime + 100;
 
@@ -167,7 +167,7 @@ export function executeAttackAction(ns: NS, action: string, attacker: string, ta
     }
 }
 
-const locateTargets = (ns: NS, servers: Record<string, Server>, capacity: number) => {
+const locateTargets = (ns: NS, servers: Record<string, ServerNode>, capacity: number) => {
     const isEarlyGame = capacity < settings.earlyGame.threshhold;
 
     if (isEarlyGame) {
@@ -224,7 +224,7 @@ export const hackThreadsNeededToSteal = (ns: NS, target: string, percent: number
 };
 
 export async function main(ns: NS) {
-    const attack = (hackingNodes: Server[], targets: Server[]) => {
+    const attack = (hackingNodes: ServerNode[], targets: ServerNode[]) => {
 
         const getActionTimes = (target: string): ActionTimes => {
             const hackTime = ns.getHackTime(target);
@@ -244,7 +244,7 @@ export async function main(ns: NS) {
             }
         };
 
-        const calculatePrepare = (cycles: number, target: Server): CycleCount => {
+        const calculatePrepare = (cycles: number, target: ServerNode): CycleCount => {
             let cyclesAvailable = cycles;
 
             const secLevel = ns.getServerSecurityLevel(target.host);
@@ -429,11 +429,11 @@ export async function main(ns: NS) {
     // }
 }
 
-export function getHackingNodes(servers: Record<string, Server>) {
+export function getHackingNodes(servers: Record<string, ServerNode>) {
     return Object.values(servers).filter(s => s.hasRootAccess);
 }
 
-function createHWGWBatch(ns: NS, target: Server): HWGWBatch {
+function createHWGWBatch(ns: NS, target: ServerNode): HWGWBatch {
     const hackCycles = hackThreadsNeededToSteal(ns, target.host, settings.harvestPercent);
     const growCycles = Math.ceil(ns.growthAnalyze(target.host, (1 + settings.harvestPercent) * 1.03));
     const weakenForHack = weakenCyclesForHack(hackCycles);
@@ -448,7 +448,7 @@ function createHWGWBatch(ns: NS, target: Server): HWGWBatch {
     };
 }
 
-function runBatch(ns: NS, target: string, hackingNodes: Server[], batch: HWGWBatch, delay: number, actionTimes: ActionTimes, batchId: number) {
+function runBatch(ns: NS, target: string, hackingNodes: ServerNode[], batch: HWGWBatch, delay: number, actionTimes: ActionTimes, batchId: number) {
     let { hackCycles, growCycles, weakenForHack, weakenForGrow } = batch;
 
     // first run hacks

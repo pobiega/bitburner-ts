@@ -1,4 +1,4 @@
-export interface Server {
+export interface ServerNode {
     host: string;
     ports: number;
     hackingLevel: number;
