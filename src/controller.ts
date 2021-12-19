@@ -54,7 +54,7 @@ function weakenCyclesForGrow(growCycles: number, multiplier: number = 1) {
     0,
     Math.ceil(
       growCycles * (settings.changes.grow / settings.changes.weaken) *
-        multiplier,
+      multiplier,
     ),
   );
 }
@@ -64,7 +64,7 @@ function weakenCyclesForHack(hackCycles: number, multiplier: number = 1) {
     0,
     Math.ceil(
       hackCycles * (settings.changes.hack / settings.changes.weaken) *
-        multiplier,
+      multiplier,
     ),
   );
 }
@@ -222,8 +222,7 @@ const locateTargets = (
 
   if (isEarlyGame) {
     ns.tprint(
-      `Early game detected, capping max weaken time to ${
-        ns.tFormat(settings.earlyGame.timeCap)
+      `Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)
       }.`,
     );
   }
@@ -411,10 +410,8 @@ export async function main(ns: NS) {
         longestWait = Math.max(longestWait, delay + actionTimes.weaken);
 
         ns.tprint(
-          `Executed ${
-            batchCount + 1
-          } batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${
-            ns.tFormat(delay + actionTimes.weaken)
+          `Executed ${batchCount + 1
+          } batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)
           }.`,
         );
       }
@@ -589,18 +586,10 @@ function createHWGWBatch(ns: NS, target: ServerNode): HWGWBatch {
     target.host,
     settings.harvestPercent,
   );
-  const growCycles = Math.ceil(
-    ns.growthAnalyze(target.host, 1 / (1 - settings.harvestPercent)) *
-      settings.hwgwBatches.safetyFactor,
-  );
-  const weakenForHack = weakenCyclesForHack(
-    hackCycles,
-    settings.hwgwBatches.safetyFactor,
-  );
-  const weakenForGrow = weakenCyclesForGrow(
-    growCycles,
-    settings.hwgwBatches.safetyFactor,
-  );
+
+  const growCycles = Math.ceil(ns.growthAnalyze(target.host, 1 / (1 - settings.harvestPercent)) * settings.hwgwBatches.safetyFactor);
+  const weakenForHack = weakenCyclesForHack(hackCycles, settings.hwgwBatches.safetyFactor);
+  const weakenForGrow = weakenCyclesForGrow(growCycles, settings.hwgwBatches.safetyFactor);
 
   return {
     hackCycles: hackCycles,
