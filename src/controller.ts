@@ -221,10 +221,7 @@ const locateTargets = (
   const isEarlyGame = capacity < settings.earlyGame.threshhold;
 
   if (isEarlyGame) {
-    ns.tprint(
-      `Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)
-      }.`,
-    );
+    ns.tprint(`Early game detected, capping max weaken time to ${ns.tFormat(settings.earlyGame.timeCap)}.`);
   }
 
   const hackingLevel = ns.getHackingLevel();
@@ -387,9 +384,7 @@ export async function main(ns: NS) {
         );
 
         if (DEBUG.batcher) {
-          ns.tprint(
-            `${target.host}: Batch size is ${batch.totalCycles}; ${batchesForThisTarget} batches.`,
-          );
+          ns.tprint(`${target.host}: Batch size is ${batch.totalCycles}; ${batchesForThisTarget} batches.`);
         }
         let batchCount = 0;
         for (let i = 0; i < batchesForThisTarget; i++) {
@@ -409,11 +404,7 @@ export async function main(ns: NS) {
 
         longestWait = Math.max(longestWait, delay + actionTimes.weaken);
 
-        ns.tprint(
-          `Executed ${batchCount + 1
-          } batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)
-          }.`,
-        );
+        ns.tprint(`Executed ${batchCount} batches for ${target.host} - ${cycles} cycles left. Last batch finishes in ${ns.tFormat(delay + actionTimes.weaken)}.`);
       }
     }
 
@@ -425,9 +416,7 @@ export async function main(ns: NS) {
       const cyclesNeeded = calculatePrepare(cycles, target);
       const actionTimes = getActionTimes(target.host);
 
-      ns.tprint(
-        `${target.host} weaken time is ${ns.tFormat(actionTimes.weaken)}`,
-      );
+      ns.tprint(`${target.host} weaken time is ${ns.tFormat(actionTimes.weaken)}`);
 
       hackingNodes = hackingNodes.filter((node) => node.availableCycles > 0);
 

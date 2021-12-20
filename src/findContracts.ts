@@ -20,23 +20,39 @@ export async function main(ns: NS) {
                 if (DEBUG.contractFound)
                     ns.tprint(`WARN: Contract ${file} located on ${server.host}.`);
 
-                const contractType = ns.codingcontract.getContractType(file, server.host);
-
-                const solver = solvers[contractType];
+                const contract = getContractDetails(ns, file, server.host);
+                const solver = solvers[contract.contractType];
 
                 if (solver !== undefined) {
-                    const data = ns.codingcontract.getData(file, server.host);
-                    const answer = solver(data);
+                    const answer = solver(contract.data);
 
                     if (answer !== undefined) {
                         const reward = ns.codingcontract.attempt(answer, file, server.host, { returnReward: true });
 
                         ns.tprint(`INFO: ${file} on ${server.host} solved! Reward: ${reward}`);
+                    } else {
+                        ns.tprint(`WARN: Contract ${file} on ${server.host} with type "${contract.contractType}" could not be solved.`);
                     }
+                } else {
+                    ns.tprint(`WARN: No solver for ${contract.contractType}, skipping...`);
                 }
             }
         }
     }
+}
+
+function getContractDetails(ns: NS, filename: string, host: string) {
+    const contractType = ns.codingcontract.getContractType(filename, host);
+    const data = ns.codingcontract.getData(filename, host);
+    const triesRemaining = ns.codingcontract.getNumTriesRemaining(filename, host);
+
+    return {
+        host,
+        filename,
+        contractType,
+        data,
+        triesRemaining
+    };
 }
 
 function algoStockTrader3(numbers: number[]) {
