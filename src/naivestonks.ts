@@ -114,6 +114,6 @@ function naiveDumpingStrategy(ns: NS, stocks: StockData[]) {
         const sellTotal = sharePrice * stock.longShares;
         const totalBuyAvg = stock.longAvgPrice * stock.longShares;
         const profit = sellTotal - totalBuyAvg;
-        ns.tprint(`STOCKS: Dumped ${stock.longShares} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
+        ns.tprint(`STOCKS: Dumped ${ns.nFormat(stock.longShares, "0.0a")} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
     }
 }
