@@ -558,6 +558,11 @@ export async function main(ns: NS) {
       servers[hostname]
     );
 
+    if (targets.length === 0) {
+      ns.tprint("ERROR: No targets matched the current filters. Try changing the target settings in controller.js and try again.");
+      return;
+    }
+
     const attackResults = attack(hackingNodes, targets);
 
     const attackResetAt = new Date().getTime() + attackResults.longestWait;
