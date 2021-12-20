@@ -4,8 +4,8 @@ const settings = {
     shorts: false,
     long: {
         enabled: true,
-        buyForecast: 0.6,
-        dumpForecast: 0.51
+        buyForecast: 0.55,
+        dumpForecast: 0.50
     }
 };
 
@@ -66,7 +66,7 @@ function naiveBuyingStrategy(ns: NS, stocks: StockData[]) {
             ns.stock.buy(stock.symbol, stock.maxShares);
         } else {
             // TODO: maybe buy partial instead?
-            ns.tprint(`Not enough cash to buy ${availableShares} ${stock.symbol} - would need ${ns.nFormat(cost, "0.0a")}`);
+            ns.tprint(`Not enough cash to buy ${availableShares} ${stock.symbol} - would need ${ns.nFormat(cost, "$0.0a")}`);
         }
     }
 }
@@ -95,13 +95,13 @@ function printStockOverview(ns: NS, stocks: StockData[]) {
     ns.clearLog();
     for (const stock of stocks) {
         ns.print(
-            ns.sprintf("%6s: %3s %5s %5s %10s %5s",
+            ns.sprintf("%6s: %4s %7s %7s",
                 stock.symbol,
                 stock.forecast.toFixed(2),
-                ns.nFormat(stock.askPrice, "0.0a"),
-                ns.nFormat(stock.bidPrice, "0.0a"),
-                stock.longShares.toString(),
-                ns.nFormat(stock.longAvgPrice, "0.0a"))
+                // ns.nFormat(stock.askPrice, "$0.0a"),
+                // ns.nFormat(stock.bidPrice, "$0.0a"),
+                ns.nFormat(stock.longShares, "0.0a"),
+                ns.nFormat(stock.longAvgPrice, "$0.0a"))
         );
     }
 }
@@ -111,6 +111,9 @@ function naiveDumpingStrategy(ns: NS, stocks: StockData[]) {
 
     for (const stock of trending) {
         const sharePrice = ns.stock.sell(stock.symbol, stock.longShares);
-        ns.tprint(`DUMPED ${stock.longShares} ${stock.symbol} for ${ns.nFormat(sharePrice * stock.longShares, "0.0a")}`);
+        const sellTotal = sharePrice * stock.longShares;
+        const totalBuyAvg = stock.longAvgPrice * stock.longShares;
+        const profit = sellTotal - totalBuyAvg;
+        ns.tprint(`STOCKS: Dumped ${stock.longShares} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
     }
 }
