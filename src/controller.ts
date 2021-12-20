@@ -377,16 +377,13 @@ export async function main(ns: NS) {
 
         let delay = 0;
 
-        // cap number of batches to batchcap (defaults to 400)
-        const batchesForThisTarget = Math.min(
-          Math.floor(cyclesPerTarget / batch.totalCycles),
-          settings.hwgwBatches.batchCap,
-        );
+        // cap number of batches to batchcap (defaults to 400, min 1)
+        const batchesForThisTarget = Math.max(Math.min(Math.floor(cyclesPerTarget / batch.totalCycles), settings.hwgwBatches.batchCap), 1);
 
         if (DEBUG.batcher) {
           ns.tprint(`${target.host}: Batch size is ${batch.totalCycles}; ${batchesForThisTarget} batches.`);
         }
-        let batchCount = 0;
+        let batchCount = 1;
         for (let i = 0; i < batchesForThisTarget; i++) {
           if (cycles < batch.totalCycles) {
             break;
