@@ -2,13 +2,16 @@ import { NS } from "../types/index.js";
 import { explore } from "./controller.js";
 
 const DEBUG = {
-    contractFound: true
+    contractFound: false
 };
 
 type Solver = (data: any) => any;
 
 const solvers = {
-    "Algorithmic Stock Trader III": algoStockTrader3
+    "Algorithmic Stock Trader III": algoStockTrader3,
+    //"Spiralize Matrix": spiralizeMatrix,
+    "Minimum Path Sum in a Triangle": minPathSumTriangle,
+    "Unique Paths in a Grid II": uniquePathsInGrid2,
 } as Record<string, Solver>;
 
 export async function main(ns: NS) {
@@ -31,7 +34,7 @@ export async function main(ns: NS) {
 
                         ns.tprint(`INFO: ${file} on ${server.host} solved! Reward: ${reward}`);
                     } else {
-                        ns.tprint(`WARN: Contract ${file} on ${server.host} with type "${contract.contractType}" could not be solved.`);
+                        ns.tprint(`ERROR: Contract ${file} on ${server.host} with type "${contract.contractType}" could not be solved.`);
                     }
                 } else {
                     ns.tprint(`WARN: No solver for ${contract.contractType}, skipping...`);
@@ -69,4 +72,41 @@ function algoStockTrader3(numbers: number[]) {
     }
 
     return release2;
+}
+function spiralizeMatrix(data: any) {
+    return 0;
+}
+
+function minPathSumTriangle(data: number[][]) {
+    const n: number = data.length;
+    const dp: number[] = data[n - 1].slice();
+    for (let i = n - 2; i > -1; --i) {
+      for (let j = 0; j < data[i].length; ++j) {
+        dp[j] = Math.min(dp[j], dp[j + 1]) + data[i][j];
+      }
+    }
+
+    return dp[0];
+}
+
+function uniquePathsInGrid2(data: number[][]) {
+    const obstacleGrid: number[][] = [];
+    obstacleGrid.length = data.length;
+    for (let i = 0; i < obstacleGrid.length; ++i) {
+      obstacleGrid[i] = data[i].slice();
+    }
+
+    for (let i = 0; i < obstacleGrid.length; i++) {
+      for (let j = 0; j < obstacleGrid[0].length; j++) {
+        if (obstacleGrid[i][j] == 1) {
+          obstacleGrid[i][j] = 0;
+        } else if (i == 0 && j == 0) {
+          obstacleGrid[0][0] = 1;
+        } else {
+          obstacleGrid[i][j] = (i > 0 ? obstacleGrid[i - 1][j] : 0) + (j > 0 ? obstacleGrid[i][j - 1] : 0);
+        }
+      }
+    }
+
+    return obstacleGrid[obstacleGrid.length-1][obstacleGrid[0].length - 1];
 }

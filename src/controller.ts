@@ -365,7 +365,7 @@ export async function main(ns: NS) {
       }
     }
 
-    if (batchTargets.length > 1) {
+    if (batchTargets.length > 0) {
       const cyclesPerTarget = Math.floor((cycles * .75) / batchTargets.length);
       ns.tprint(
         `${batchTargets.length} targets ready for H W G W, ${cyclesPerTarget} cycles per batch target.`,
@@ -383,6 +383,7 @@ export async function main(ns: NS) {
         if (DEBUG.batcher) {
           ns.tprint(`${target.host}: Batch size is ${batch.totalCycles}; ${batchesForThisTarget} batches.`);
         }
+
         let batchCount = 1;
         for (let i = 0; i < batchesForThisTarget; i++) {
           if (cycles < batch.totalCycles) {
@@ -396,7 +397,7 @@ export async function main(ns: NS) {
           delay = i * settings.hwgwBatches.batchDelay;
 
           cycles -= batch.totalCycles;
-          batchCount = i;
+          batchCount = i+1;
         }
 
         longestWait = Math.max(longestWait, delay + actionTimes.weaken);
