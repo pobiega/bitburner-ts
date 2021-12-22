@@ -45,8 +45,8 @@ export function msToString(ms = 0) {
 }
 
 export function estimateServerWorth(ns: NS, server: ServerNode) {
-  const weakenTime = ns.getWeakenTime(server.host);
-  return (server.maxMoney * server.growth) / weakenTime;
+  const hackTime = ns.getHackTime(server.host);
+  return (server.maxMoney * server.growth) / hackTime;
 }
 
 function weakenCyclesForGrow(growCycles: number, multiplier: number = 1) {
@@ -283,7 +283,7 @@ export const hackThreadsNeededToSteal = (
 };
 
 export async function main(ns: NS) {
-  const attack = (hackingNodes: ServerNode[], targets: ServerNode[]) => {
+  const attack = async (hackingNodes: ServerNode[], targets: ServerNode[]) => {
     const getActionTimes = (target: string): ActionTimes => {
       const hackTime = ns.getHackTime(target);
       const weakenTime = ns.getWeakenTime(target);
@@ -392,7 +392,7 @@ export async function main(ns: NS) {
 
           // execute the batch.
 
-          runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes, i);
+          await runBatch(ns, target.host, hackingNodes, batch, delay, actionTimes, i);
 
           delay = i * settings.hwgwBatches.batchDelay;
 
@@ -550,7 +550,7 @@ export async function main(ns: NS) {
       return;
     }
 
-    const attackResults = attack(hackingNodes, targets);
+    const attackResults = await attack(hackingNodes, targets);
 
     const attackResetAt = new Date().getTime() + attackResults.longestWait;
     ns.tprint(`Next attack run at ${msToString(attackResetAt)}.`);
@@ -592,7 +592,7 @@ function createHWGWBatch(ns: NS, target: ServerNode): HWGWBatch {
   };
 }
 
-function runBatch(
+async function runBatch(
   ns: NS,
   target: string,
   hackingNodes: ServerNode[],
@@ -679,6 +679,8 @@ function runBatch(
       node.availableCycles -= count;
     }
   }
+
+  await ns.asleep(1); // Experimental, sleep a bit to let the server catch up.
 }
 
 let uuidCounter = 0;
