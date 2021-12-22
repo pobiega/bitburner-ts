@@ -1,6 +1,7 @@
 import { NS } from "../types/index.js";
 
 const settings = {
+    reserveCash: 1000000, // 1 million
     shorts: false,
     long: {
         enabled: true,
@@ -8,6 +9,8 @@ const settings = {
         dumpForecast: 0.50
     }
 };
+
+const DEBUG = false;
 
 export async function main(ns: NS) {
     const symbols = ns.stock.getSymbols();
@@ -20,10 +23,9 @@ export async function main(ns: NS) {
         let stocks = symbols.map(symbol => getStockData(ns, symbol));
 
         naiveDumpingStrategy(ns, stocks);
-
         naiveBuyingStrategy(ns, stocks);
 
-        stocks = symbols.map(symbol => getStockData(ns, symbol));
+        stocks = symbols.map(symbol => getStockData(ns, symbol)).sort((a, b) => b.forecast - a.forecast);
 
         printStockOverview(ns, stocks);
 
@@ -50,10 +52,8 @@ interface StockData {
 function naiveBuyingStrategy(ns: NS, stocks: StockData[]) {
     const trending = stocks.filter(stock => stock.forecast > settings.long.buyForecast);
 
-    let currentCash = ns.getServerMoneyAvailable("home");
-
-    // ns.print(`Ticks: ${ticks++}`);
     for (const stock of trending) {
+        const currentCash = ns.getServerMoneyAvailable("home") - settings.reserveCash;
         const availableShares = stock.maxShares - stock.longShares;
 
         if (availableShares == 0) {
@@ -63,10 +63,13 @@ function naiveBuyingStrategy(ns: NS, stocks: StockData[]) {
         const cost = ns.stock.getPurchaseCost(stock.symbol, availableShares, PositionType.Long);
 
         if (cost < currentCash) {
-            ns.stock.buy(stock.symbol, stock.maxShares);
+            const sharePrice = ns.stock.buy(stock.symbol, availableShares);
+            if (!sharePrice) {
+                ns.tprint(`ERROR: Failed to buy ${ns.nFormat(availableShares, "0.0a")} ${stock.symbol} shares. Calculated cost was ${ns.nFormat(cost, "$0.0a")}, you have ${ns.nFormat(currentCash, "$0.0a")}`);
+            }
         } else {
-            // TODO: maybe buy partial instead?
-            ns.tprint(`Not enough cash to buy ${availableShares} ${stock.symbol} - would need ${ns.nFormat(cost, "$0.0a")}`);
+            if (DEBUG)
+                ns.tprint(`ERROR: Not enough cash to buy ${ns.nFormat(availableShares, "0.0a")} ${stock.symbol} - would need ${ns.nFormat(cost, "$0.0a")}`);
         }
     }
 }
@@ -98,8 +101,6 @@ function printStockOverview(ns: NS, stocks: StockData[]) {
             ns.sprintf("%6s: %4s %7s %7s",
                 stock.symbol,
                 stock.forecast.toFixed(2),
-                // ns.nFormat(stock.askPrice, "$0.0a"),
-                // ns.nFormat(stock.bidPrice, "$0.0a"),
                 ns.nFormat(stock.longShares, "0.0a"),
                 ns.nFormat(stock.longAvgPrice, "$0.0a"))
         );
@@ -114,6 +115,6 @@ function naiveDumpingStrategy(ns: NS, stocks: StockData[]) {
         const sellTotal = sharePrice * stock.longShares;
         const totalBuyAvg = stock.longAvgPrice * stock.longShares;
         const profit = sellTotal - totalBuyAvg;
-        ns.tprint(`STOCKS: Dumped ${ns.nFormat(stock.longShares, "0.0a")} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
+        ns.tprint(`INFO: Dumped ${ns.nFormat(stock.longShares, "0.0a")} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
     }
 }
