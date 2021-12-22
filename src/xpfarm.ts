@@ -3,7 +3,8 @@ import { NS } from "../types/index.js";
 import { ServerNode } from 'types';
 
 const settings = {
-    homeRamReserved: 64,
+    extraSleepTime: 100,
+    homeRamReserved: 32,
     expFarmTarget: "joesguns",
     attackScripts: ["hack.js", "grow.js", "weaken.js"],
 };
@@ -83,7 +84,7 @@ export async function main(ns: NS) {
 
     while (true) {
         const expFarmTime = ns.getWeakenTime(settings.expFarmTarget);
-        const sleepInterval = expFarmTime + 30;
+        const sleepInterval = expFarmTime + settings.extraSleepTime;
 
         await explore();
 
@@ -91,7 +92,12 @@ export async function main(ns: NS) {
 
         hackingNodes.forEach(node => {
             const availableRam = node.maxRam - ns.getServerUsedRam(node.host);
+
             node.availableCycles = Math.floor(availableRam / 1.75);
+
+            if (node.host == "home") {
+                node.availableCycles -= Math.max(Math.ceil(settings.homeRamReserved / 1.75), 0);
+            }
         });
 
         hackingNodes = hackingNodes.filter(node => node.availableCycles > 0);
