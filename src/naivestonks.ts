@@ -15,6 +15,15 @@ const DEBUG = false;
 export async function main(ns: NS) {
     const symbols = ns.stock.getSymbols();
 
+    const dumpMode = ns.args[0] == "dump";
+
+    if(dumpMode) {
+        ns.tprint("INFO: Dumping all stocks...");
+        let stocks = symbols.map(symbol => getStockData(ns, symbol));
+        dumpAllStocks(ns, stocks);
+        return;
+    }
+
     ns.tail();
     ns.disableLog('ALL');
 
@@ -111,6 +120,18 @@ function naiveDumpingStrategy(ns: NS, stocks: StockData[]) {
     const trending = stocks.filter(stock => stock.longShares > 0 && stock.forecast <= settings.long.dumpForecast);
 
     for (const stock of trending) {
+        const sharePrice = ns.stock.sell(stock.symbol, stock.longShares);
+        const sellTotal = sharePrice * stock.longShares;
+        const totalBuyAvg = stock.longAvgPrice * stock.longShares;
+        const profit = sellTotal - totalBuyAvg;
+        ns.tprint(`INFO: Dumped ${ns.nFormat(stock.longShares, "0.0a")} ${stock.symbol}, making a profit of ${ns.nFormat(profit, "$0.0a")}`);
+    }
+}
+
+function dumpAllStocks(ns: NS, stocks: StockData[]) {
+    const held = stocks.filter(stock => stock.longShares > 0);
+
+    for (const stock of held) {
         const sharePrice = ns.stock.sell(stock.symbol, stock.longShares);
         const sellTotal = sharePrice * stock.longShares;
         const totalBuyAvg = stock.longAvgPrice * stock.longShares;
