@@ -309,8 +309,10 @@ export async function main(ns: NS) {
       let cyclesAvailable = cycles;
 
       const secLevel = ns.getServerSecurityLevel(target.host);
-      const money = ns.getServerMoneyAvailable(target.host);
-
+      let money = ns.getServerMoneyAvailable(target.host);
+      if (money === 0) {
+        money = 1;
+      }
       const weakenCount = Math.ceil(
         (secLevel - target.minSecurityLevel) / settings.changes.weaken,
       );
