@@ -315,7 +315,9 @@ export async function main(ns: NS) {
         (secLevel - target.minSecurityLevel) / settings.changes.weaken,
       );
       const growCount = Math.ceil(
-        ns.growthAnalyze(target.host, target.maxMoney / money),
+        isFinite(target.maxMoney / money) ? 
+        ns.growthAnalyze(target.host, target.maxMoney / money) : 
+        target.hackingLevel
       );
       const additionalWeakenCount = weakenCyclesForGrow(growCount);
 
