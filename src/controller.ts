@@ -1,5 +1,31 @@
 import { NS } from "../types/index.js";
-import { ActionTimes, CycleCount, HWGWBatch, ServerNode } from "types";
+import { ServerNode } from "./types.js";
+
+export interface ActionTimes {
+    hack: number;
+    grow: number;
+    weaken: number;
+    growDelay: number;
+    hackDelay: number;
+    additionalWeakenDelay: number;
+}
+
+export interface CycleCount {
+    weaken: number;
+    grow: number;
+    additionalWeakens: number;
+    total: number;
+    weakensNeeded: number;
+    growsNeeded: number;
+}
+
+export interface HWGWBatch {
+    hackCycles: number;
+    weakenForHack: number;
+    growCycles: number;
+    weakenForGrow: number;
+    totalCycles: number;
+};
 
 const DEBUG = {
   batcher: true,
@@ -342,6 +368,8 @@ export async function main(ns: NS) {
         weaken: weakensToPerform,
         grow: growToPerform,
         additionalWeakens: additionalWeakensToPerform,
+        weakensNeeded: weakenCount,
+        growsNeeded: growCount
       };
     };
 
@@ -416,7 +444,7 @@ export async function main(ns: NS) {
       const cyclesNeeded = calculatePrepare(cycles, target);
       const actionTimes = getActionTimes(target.host);
 
-      ns.tprint(`${target.host} weaken time is ${ns.tFormat(actionTimes.weaken)}`);
+      ns.tprint(`${target.host} weaken time is ${ns.tFormat(actionTimes.weaken)}, needs ${cyclesNeeded.weakensNeeded + cyclesNeeded.growsNeeded} more cycles to be ready.`);
 
       hackingNodes = hackingNodes.filter((node) => node.availableCycles > 0);
 

@@ -39,6 +39,7 @@ export async function main(ns: NS) {
 
     if (!action) {
         ns.tprint("Usage: ...");
+        ns.tprint("pserv [list/plan/analyze/buy]")
         return;
     }
 

@@ -4,13 +4,13 @@ export async function main(ns: NS) {
 
     const allRootedServers = Object.entries(getAllHostnames(ns))
         .filter(([hostname, hasRootAccess]) => hasRootAccess && hostname !== "home")
-        .map(([hostname, hasRootAccess]) => hostname);
+        .map(([hostname]) => hostname);
 
     allRootedServers.forEach((hostname) => ns.killall(hostname));
     ns.killall("home");
 }
 
-function getAllHostnames(ns: NS) {
+const getAllHostnames = (ns: NS) => {
     const results = {} as Record<string, boolean>;
 
     const queue = ["home"];
